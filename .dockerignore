@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+.github
+.specify
+*.md
+.editorconfig
+.pre-commit-config.yaml
+.yamllint

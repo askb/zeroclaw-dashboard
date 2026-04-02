@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+name: "\U0001F4CC Audit GitHub Actions"
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Check SHA pinning
+        run: |
+          echo "Checking for unpinned actions..."
+          UNPINNED=$(grep -rn 'uses:' .github/workflows/*.yaml | grep -v '#' | grep -vE '@[0-9a-f]{40}' | grep -v 'uses: ./' || true)
+          if [ -n "$UNPINNED" ]; then
+            echo "::error::Found unpinned actions:"
+            echo "$UNPINNED"
+            exit 1
+          fi
+          echo "All actions are SHA-pinned ✅"

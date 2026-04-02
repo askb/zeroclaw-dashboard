@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Draft Release
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  draft:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: release-drafter/release-drafter@b1476f7b2571bcbc4ce4c36747b58496a4d48432  # v6.1.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

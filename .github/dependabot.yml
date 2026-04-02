@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    groups:
+      next-js:
+        patterns:
+          - "next"
+          - "@next/*"
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      dev-tools:
+        patterns:
+          - "eslint*"
+          - "typescript"
+          - "tailwindcss"
+          - "@tailwindcss/*"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - ci

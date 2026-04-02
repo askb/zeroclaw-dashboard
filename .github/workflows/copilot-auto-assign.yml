@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Auto-assign Copilot to labeled issues
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  assign-copilot:
+    if: github.event.label.name == 'copilot'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Assign Copilot
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --add-assignee copilot-swe-agent
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "🤖 Copilot has been assigned to this issue and will start working on it shortly."

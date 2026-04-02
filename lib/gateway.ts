@@ -15,6 +15,8 @@ import type {
   Agent,
   AgentStatus,
   ActivityEvent,
+  DailyUsage,
+  UsageResponse,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -400,4 +402,42 @@ export async function getGatewayAgents(): Promise<Agent[]> {
   } catch {
     return [];
   }
+}
+
+/**
+ * Fetch API usage/cost data from the gateway (server-side).
+ *
+ * Uses the `usage-cost` RPC method which mirrors the CLI command:
+ *   docker exec zeroclaw-gateway openclaw gateway usage-cost --json --days N
+ */
+export async function getGatewayUsageCost(days: number = 30): Promise<UsageResponse> {
+  return await withGatewayConnection(async ({ request }) => {
+    const result = await request("usage-cost", { days });
+
+    const rawDaily = (result.daily ?? []) as Array<Record<string, unknown>>;
+    const rawTotals = (result.totals ?? {}) as Record<string, unknown>;
+
+    const mapUsage = (r: Record<string, unknown>): DailyUsage => ({
+      date: String(r.date ?? ""),
+      input: Number(r.input ?? 0),
+      output: Number(r.output ?? 0),
+      cacheRead: Number(r.cacheRead ?? 0),
+      cacheWrite: Number(r.cacheWrite ?? 0),
+      totalTokens: Number(r.totalTokens ?? 0),
+      totalCost: Number(r.totalCost ?? 0),
+      inputCost: Number(r.inputCost ?? 0),
+      outputCost: Number(r.outputCost ?? 0),
+      cacheReadCost: Number(r.cacheReadCost ?? 0),
+      cacheWriteCost: Number(r.cacheWriteCost ?? 0),
+      missingCostEntries: Number(r.missingCostEntries ?? 0),
+    });
+
+    return {
+      updatedAt: Number(result.updatedAt ?? Date.now()),
+      days,
+      daily: rawDaily.map(mapUsage),
+      totals: mapUsage(rawTotals),
+      source: "live" as const,
+    };
+  });
 }

@@ -78,3 +78,29 @@ export interface ActivityEvent {
   agent?: string;
   type: "info" | "success" | "warning" | "error";
 }
+
+/** Daily API usage/cost entry from the gateway */
+export interface DailyUsage {
+  date: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+  totalCost: number;
+  inputCost: number;
+  outputCost: number;
+  cacheReadCost: number;
+  cacheWriteCost: number;
+  missingCostEntries: number;
+}
+
+/** Aggregated usage/cost response from the gateway */
+export interface UsageResponse {
+  updatedAt?: number;
+  days: number;
+  daily: DailyUsage[];
+  totals: DailyUsage;
+  source: "live" | "mock" | "unavailable";
+  error?: string;
+}

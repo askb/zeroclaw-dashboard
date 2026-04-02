@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Header from "@/components/layout/Header";
 import {
   Circle,
@@ -104,12 +104,20 @@ export default function TasksPage() {
   const { events } = useActivityFeed();
   const [localTasks, setLocalTasks] = useState<Task[]>([]);
   const [initialized, setInitialized] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // DnD only works after client hydration
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Sync API tasks into local state once loaded
-  if (initialTasks.length > 0 && !initialized) {
-    setLocalTasks(initialTasks);
-    setInitialized(true);
-  }
+  useEffect(() => {
+    if (initialTasks.length > 0 && !initialized) {
+      setLocalTasks(initialTasks);
+      setInitialized(true);
+    }
+  }, [initialTasks, initialized]);
 
   const tasks = initialized ? localTasks : initialTasks;
 
@@ -151,38 +159,39 @@ export default function TasksPage() {
         )}
       </div>
 
-      <DragDropContext onDragEnd={onDragEnd}>
-        <div className="flex flex-1 gap-4 overflow-x-auto p-6">
-          {columns.map((col) => {
-            const Icon = col.icon;
-            return (
-              <div
-                key={col.id}
-                className="flex w-72 shrink-0 flex-col rounded-lg"
-              >
-                {/* Column header */}
-                <div className="flex items-center gap-2 px-1 pb-3">
-                  <Icon className="h-4 w-4" style={{ color: col.color }} />
-                  <span className="text-sm font-medium text-[var(--color-text-primary)]">
-                    {col.label}
-                  </span>
-                  <span className="ml-auto rounded-full bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)]">
-                    {col.tasks.length}
-                  </span>
-                </div>
+      {mounted ? (
+        <DragDropContext onDragEnd={onDragEnd}>
+          <div className="flex flex-1 gap-4 overflow-x-auto p-6">
+            {columns.map((col) => {
+              const Icon = col.icon;
+              return (
+                <div
+                  key={col.id}
+                  className="flex w-72 shrink-0 flex-col rounded-lg"
+                >
+                  {/* Column header */}
+                  <div className="flex items-center gap-2 px-1 pb-3">
+                    <Icon className="h-4 w-4" style={{ color: col.color }} />
+                    <span className="text-sm font-medium text-[var(--color-text-primary)]">
+                      {col.label}
+                    </span>
+                    <span className="ml-auto rounded-full bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)]">
+                      {col.tasks.length}
+                    </span>
+                  </div>
 
-                {/* Droppable column */}
-                <Droppable droppableId={col.id}>
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.droppableProps}
-                      className={`flex flex-1 flex-col gap-2 rounded-lg p-1 transition-colors ${
-                        snapshot.isDraggingOver
-                          ? "bg-[var(--color-accent-muted)]"
-                          : ""
-                      }`}
-                    >
+                  {/* Droppable column */}
+                  <Droppable droppableId={col.id}>
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.droppableProps}
+                        className={`flex flex-1 flex-col gap-2 rounded-lg p-1 transition-colors ${
+                          snapshot.isDraggingOver
+                            ? "bg-[var(--color-accent-muted)]"
+                            : ""
+                        }`}
+                      >
                       {col.tasks.map((task: Task, index: number) => (
                         <Draggable
                           key={task.id}
@@ -275,6 +284,11 @@ export default function TasksPage() {
           </div>
         </div>
       </DragDropContext>
+      ) : (
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-tertiary)]" />
+        </div>
+      )}
     </>
   );
 }

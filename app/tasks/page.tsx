@@ -1,82 +1,47 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: 2026 Anil Belur <askb23@gmail.com>
 
+"use client";
+
 import Header from "@/components/layout/Header";
 import {
-  LayoutDashboard,
   Circle,
   Clock,
   CheckCircle2,
   AlertCircle,
+  Wifi,
+  WifiOff,
+  Loader2,
 } from "lucide-react";
+import { useTasks, useGatewayConnection, useActivityFeed } from "@/lib/hooks";
+import { timeAgo } from "@/lib/utils";
+import type { Task } from "@/lib/types";
 
-const columns = [
+// Column definitions
+const columnDefs = [
   {
-    id: "backlog",
+    id: "backlog" as const,
     label: "Backlog",
     icon: Circle,
     color: "var(--color-text-tertiary)",
-    tasks: [
-      {
-        id: "t1",
-        title: "Configure n8n skill integration",
-        agent: "Orchestrator",
-        priority: "medium",
-      },
-      {
-        id: "t2",
-        title: "Configure Home Assistant skill",
-        agent: "Orchestrator",
-        priority: "low",
-      },
-    ],
   },
   {
-    id: "in_progress",
+    id: "in_progress" as const,
     label: "In Progress",
     icon: Clock,
     color: "var(--color-warning)",
-    tasks: [
-      {
-        id: "t3",
-        title: "Build ZeroClaw Dashboard Phase 1",
-        agent: "Code Architect",
-        priority: "high",
-      },
-    ],
   },
   {
-    id: "review",
+    id: "review" as const,
     label: "In Review",
     icon: AlertCircle,
     color: "var(--color-info)",
-    tasks: [],
   },
   {
-    id: "done",
+    id: "done" as const,
     label: "Done",
     icon: CheckCircle2,
     color: "var(--color-success)",
-    tasks: [
-      {
-        id: "t4",
-        title: "Security hardening — exec approvals",
-        agent: "Code Architect",
-        priority: "high",
-      },
-      {
-        id: "t5",
-        title: "Deploy SearXNG metasearch",
-        agent: "Code Architect",
-        priority: "medium",
-      },
-      {
-        id: "t6",
-        title: "Create Constitution & spec kit",
-        agent: "Orchestrator",
-        priority: "high",
-      },
-    ],
   },
 ];
 
@@ -86,13 +51,77 @@ const priorityColors: Record<string, string> = {
   low: "bg-[var(--color-text-tertiary)]/20 text-[var(--color-text-secondary)]",
 };
 
+function ConnectionIndicator({
+  status,
+}: {
+  status: "connected" | "connecting" | "disconnected" | "demo";
+}) {
+  const config = {
+    connected: {
+      icon: Wifi,
+      label: "Live",
+      className: "text-[var(--color-success)]",
+    },
+    connecting: {
+      icon: Loader2,
+      label: "Connecting…",
+      className: "text-[var(--color-warning)] animate-spin",
+    },
+    disconnected: {
+      icon: WifiOff,
+      label: "Offline",
+      className: "text-[var(--color-error)]",
+    },
+    demo: {
+      icon: WifiOff,
+      label: "Demo Mode",
+      className: "text-[var(--color-text-tertiary)]",
+    },
+  }[status];
+
+  const Icon = config.icon;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <Icon className={`h-3.5 w-3.5 ${config.className}`} />
+      <span className="text-[10px] font-medium text-[var(--color-text-tertiary)]">
+        {config.label}
+      </span>
+    </div>
+  );
+}
+
 export default function TasksPage() {
+  const { tasks, isLive, loading } = useTasks();
+  const { status } = useGatewayConnection();
+  const { events } = useActivityFeed();
+
+  // Group tasks into columns
+  const columns = columnDefs.map((col) => ({
+    ...col,
+    tasks: tasks.filter((t: Task) => t.status === col.id),
+  }));
+
   return (
     <>
       <Header
         title="Tasks"
         subtitle="Kanban board — track agent work across all projects"
       />
+
+      {/* Status bar */}
+      <div className="flex items-center gap-3 border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] px-6 py-1.5">
+        <ConnectionIndicator status={status} />
+        {!isLive && status !== "connecting" && (
+          <span className="rounded-full bg-[var(--color-warning)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--color-warning)]">
+            Demo Data
+          </span>
+        )}
+        {loading && (
+          <Loader2 className="h-3 w-3 animate-spin text-[var(--color-text-tertiary)]" />
+        )}
+      </div>
+
       <div className="flex flex-1 gap-4 overflow-x-auto p-6">
         {columns.map((col) => {
           const Icon = col.icon;
@@ -117,7 +146,7 @@ export default function TasksPage() {
 
               {/* Task cards */}
               <div className="flex flex-1 flex-col gap-2">
-                {col.tasks.map((task) => (
+                {col.tasks.map((task: Task) => (
                   <div
                     key={task.id}
                     className="cursor-pointer rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] p-3 transition-colors hover:border-[var(--color-border-default)]"
@@ -127,10 +156,10 @@ export default function TasksPage() {
                     </p>
                     <div className="mt-2 flex items-center justify-between">
                       <span className="text-xs text-[var(--color-text-tertiary)]">
-                        {task.agent}
+                        {task.agent ?? "Unassigned"}
                       </span>
                       <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${priorityColors[task.priority]}`}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${priorityColors[task.priority] ?? ""}`}
                       >
                         {task.priority}
                       </span>
@@ -156,29 +185,25 @@ export default function TasksPage() {
             </h3>
           </div>
           <div className="space-y-3 p-4">
-            {[
-              {
-                time: "2m ago",
-                text: "Code Architect completed security audit",
-              },
-              {
-                time: "15m ago",
-                text: "SearXNG returned 52 results from 6 engines",
-              },
-              { time: "1h ago", text: "Gateway started — 4 services healthy" },
-              {
-                time: "2h ago",
-                text: "Exec approvals updated (30+ deny patterns)",
-              },
-            ].map((event, i) => (
-              <div key={i} className="flex gap-3">
-                <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-accent)]" />
+            {events.map((event) => (
+              <div key={event.id} className="flex gap-3">
+                <div
+                  className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                    event.type === "success"
+                      ? "bg-[var(--color-success)]"
+                      : event.type === "warning"
+                        ? "bg-[var(--color-warning)]"
+                        : event.type === "error"
+                          ? "bg-[var(--color-error)]"
+                          : "bg-[var(--color-accent)]"
+                  }`}
+                />
                 <div>
                   <p className="text-xs text-[var(--color-text-secondary)]">
                     {event.text}
                   </p>
                   <p className="text-[10px] text-[var(--color-text-tertiary)]">
-                    {event.time}
+                    {timeAgo(new Date(event.timestamp))}
                   </p>
                 </div>
               </div>

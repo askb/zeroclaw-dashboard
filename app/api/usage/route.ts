@@ -2,12 +2,22 @@
 // SPDX-FileCopyrightText: 2026 Anil Belur <askb23@gmail.com>
 
 import { NextResponse } from "next/server";
-import { getGatewayUsageCost } from "@/lib/gateway";
-import type { UsageResponse } from "@/lib/types";
+import { readFile, stat } from "fs/promises";
+import path from "path";
+import type { UsageResponse, DailyUsage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-/** Mock data returned when the gateway is unreachable. */
+/** Path to the usage data file written by the gateway dump script. */
+const USAGE_FILE = path.join(
+  process.env.USAGE_DATA_DIR || "/app/data/usage",
+  "usage-30d.json",
+);
+
+/** Max age in seconds before the file is considered stale. */
+const MAX_AGE_SECONDS = 600; // 10 minutes
+
+/** Mock data returned when no live data is available. */
 const MOCK_USAGE: UsageResponse = {
   days: 30,
   daily: [
@@ -19,25 +29,77 @@ const MOCK_USAGE: UsageResponse = {
   source: "mock",
 };
 
+function mapUsage(r: Record<string, unknown>): DailyUsage {
+  return {
+    date: String(r.date ?? ""),
+    input: Number(r.input ?? 0),
+    output: Number(r.output ?? 0),
+    cacheRead: Number(r.cacheRead ?? 0),
+    cacheWrite: Number(r.cacheWrite ?? 0),
+    totalTokens: Number(r.totalTokens ?? 0),
+    totalCost: Number(r.totalCost ?? 0),
+    inputCost: Number(r.inputCost ?? 0),
+    outputCost: Number(r.outputCost ?? 0),
+    cacheReadCost: Number(r.cacheReadCost ?? 0),
+    cacheWriteCost: Number(r.cacheWriteCost ?? 0),
+    missingCostEntries: Number(r.missingCostEntries ?? 0),
+  };
+}
+
 /**
  * GET /api/usage?days=30
  *
- * Fetches API usage/cost data from the OpenClaw gateway via WebSocket RPC.
- * Falls back to mock data if the gateway is unreachable.
+ * Reads API usage/cost data from a shared volume file written by the gateway.
+ * Falls back to mock data if the file doesn't exist or is stale.
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const days = Math.min(Math.max(parseInt(searchParams.get("days") || "30", 10), 1), 365);
 
   try {
-    const usage = await getGatewayUsageCost(days);
-    return NextResponse.json(usage);
-  } catch (err) {
-    // Gateway unreachable — return mock data so the UI still renders
+    // Check file freshness
+    const fileStat = await stat(USAGE_FILE);
+    const ageSeconds = (Date.now() - fileStat.mtimeMs) / 1000;
+
+    const raw = await readFile(USAGE_FILE, "utf-8");
+    const data = JSON.parse(raw) as Record<string, unknown>;
+
+    const rawDaily = (data.daily ?? []) as Array<Record<string, unknown>>;
+    const rawTotals = (data.totals ?? {}) as Record<string, unknown>;
+
+    // Filter daily entries to requested day count
+    const allDaily = rawDaily.map(mapUsage);
+    const daily = days < allDaily.length ? allDaily.slice(0, days) : allDaily;
+
+    // Recalculate totals for the filtered range
+    const totals = daily.length > 0
+      ? daily.reduce(
+          (acc, d) => ({
+            ...acc,
+            input: acc.input + d.input,
+            output: acc.output + d.output,
+            totalTokens: acc.totalTokens + d.totalTokens,
+            totalCost: acc.totalCost + d.totalCost,
+            inputCost: acc.inputCost + d.inputCost,
+            outputCost: acc.outputCost + d.outputCost,
+            cacheRead: acc.cacheRead + d.cacheRead,
+            cacheWrite: acc.cacheWrite + d.cacheWrite,
+            cacheReadCost: acc.cacheReadCost + d.cacheReadCost,
+            cacheWriteCost: acc.cacheWriteCost + d.cacheWriteCost,
+          }),
+          mapUsage({}),
+        )
+      : mapUsage(rawTotals);
+
     return NextResponse.json({
-      ...MOCK_USAGE,
+      updatedAt: Number(data.updatedAt ?? fileStat.mtimeMs),
       days,
-      error: `Gateway unreachable: ${err instanceof Error ? err.message : "unknown"}`,
-    });
+      daily,
+      totals,
+      source: ageSeconds > MAX_AGE_SECONDS ? "stale" : "live",
+      fileAge: Math.round(ageSeconds),
+    } satisfies UsageResponse & { fileAge: number });
+  } catch {
+    return NextResponse.json({ ...MOCK_USAGE, days });
   }
 }

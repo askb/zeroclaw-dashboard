@@ -3,360 +3,645 @@
 
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import Header from "@/components/layout/Header";
-import { RefreshCw, Monitor, Coffee, Users, Server, Wifi, WifiOff } from "lucide-react";
+import type { Agent } from "@/lib/types";
 
-interface AgentData {
-  id: string;
-  name: string;
-  role: string;
-  status: "online" | "busy" | "idle" | "offline";
-  description?: string;
-  skills?: string[];
-}
+/* ================================================================== */
+/*  Constants                                                          */
+/* ================================================================== */
 
-const COLORS: Record<string, string> = {
-  orchestrator: "#7c3aed",
-  main: "#7c3aed",
-  coder: "#3b82f6",
-  researcher: "#10b981",
-  security: "#ef4444",
-  default: "#6b7280",
+const POLL_MS = 10_000;
+const SPRITE = 12;
+const DOT_R = 2;
+const MOBILE_BP = 768;
+
+/** Role → sprite colour (orchestrator=purple, coder=blue, etc.) */
+const ROLE_CLR: Record<string, string> = {
+  orchestrator: "#9b59b6",
+  coder: "#3498db",
+  researcher: "#2ecc71",
+  security: "#e74c3c",
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  online: "#10b981",
-  busy: "#f59e0b",
-  idle: "#6b7280",
+/** Status → indicator dot colour */
+const STAT_CLR: Record<string, string> = {
+  online: "#22c55e",
+  busy: "#eab308",
+  idle: "#8b8b9e",
   offline: "#ef4444",
 };
 
-const ROOMS = {
-  desks:   { x: 40, y: 60, w: 280, h: 200, label: "🖥️ Dev Area", color: "#16213e" },
-  cooler:  { x: 380, y: 60, w: 180, h: 140, label: "☕ Break Room", color: "#0f3460" },
-  meeting: { x: 40, y: 300, w: 220, h: 140, label: "🤝 War Room", color: "#1e1e3e" },
-  server:  { x: 380, y: 240, w: 180, h: 200, label: "🖧 Server Room", color: "#1a2a1a" },
+/** Status → human-readable room name */
+const LOC: Record<string, string> = {
+  online: "Main Desk",
+  busy: "Meeting Room",
+  idle: "Water Cooler",
+  offline: "Offline",
 };
 
-function statusToRoom(status: string): keyof typeof ROOMS {
-  switch (status) {
-    case "online": return "desks";
-    case "busy": return "meeting";
-    case "idle": return "cooler";
-    default: return "server";
+/* Retro pixel-art colour palette */
+const PAL = {
+  floor: "#1a1a2e",
+  walls: "#2a2a4a",
+  grid: "#222244",
+  desk: "#16213e",
+  cooler: "#0f3460",
+  meeting: "#1e1e3e",
+  server: "#1a2a1a",
+  txt: "#ededef",
+  dim: "#5e5e72",
+} as const;
+
+interface RoomDef {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label: string;
+  fill: string;
+}
+
+/** Room rectangles as fractions of canvas size */
+const ROOMS: Record<string, RoomDef> = {
+  desk: {
+    x: 0.02,
+    y: 0.02,
+    w: 0.58,
+    h: 0.44,
+    label: "MAIN DESK AREA",
+    fill: PAL.desk,
+  },
+  cooler: {
+    x: 0.64,
+    y: 0.02,
+    w: 0.34,
+    h: 0.4,
+    label: "WATER COOLER",
+    fill: PAL.cooler,
+  },
+  meeting: {
+    x: 0.02,
+    y: 0.52,
+    w: 0.58,
+    h: 0.46,
+    label: "MEETING ROOM",
+    fill: PAL.meeting,
+  },
+  server: {
+    x: 0.64,
+    y: 0.48,
+    w: 0.34,
+    h: 0.5,
+    label: "SERVER ROOM",
+    fill: PAL.server,
+  },
+};
+
+/* ================================================================== */
+/*  Helpers                                                            */
+/* ================================================================== */
+
+function agentColor(a: Agent): string {
+  const k = a.id.toLowerCase();
+  if (k.includes("orchestrator") || k.includes("manager") || k.includes("main"))
+    return ROLE_CLR.orchestrator;
+  if (k.includes("code") || k.includes("architect")) return ROLE_CLR.coder;
+  if (k.includes("research")) return ROLE_CLR.researcher;
+  if (k.includes("security")) return ROLE_CLR.security;
+  return "#7f8c8d";
+}
+
+function roomForStatus(s: string): string {
+  switch (s) {
+    case "online":
+      return "desk";
+    case "busy":
+      return "meeting";
+    case "idle":
+      return "cooler";
+    default:
+      return "desk";
   }
 }
 
-export default function OfficePage() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [agents, setAgents] = useState<AgentData[]>([]);
-  const [source, setSource] = useState<"live" | "mock">("mock");
-  const [loading, setLoading] = useState(true);
-  const [tick, setTick] = useState(0);
-  const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
-  const [canvasSize, setCanvasSize] = useState({ w: 600, h: 480 });
+/* ================================================================== */
+/*  Canvas painter (pure – no React dependency)                        */
+/* ================================================================== */
 
-  // Fetch agents
-  const fetchAgents = useCallback(async () => {
-    try {
-      const res = await fetch("/api/agents");
-      const data = await res.json();
-      setAgents(data.agents || []);
-      setSource(data.source || "mock");
-    } catch {
-      setAgents([
-        { id: "orchestrator", name: "Orchestrator", role: "Manager", status: "online" },
-        { id: "coder", name: "Code Architect", role: "Developer", status: "busy" },
-        { id: "researcher", name: "Researcher", role: "Analyst", status: "idle" },
-        { id: "security", name: "Security", role: "Auditor", status: "online" },
-      ]);
-      setSource("mock");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+function paint(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  agents: Agent[],
+  gwOk: boolean,
+  t: number,
+) {
+  /* ---- floor ---- */
+  ctx.fillStyle = PAL.floor;
+  ctx.fillRect(0, 0, W, H);
 
-  useEffect(() => { fetchAgents(); const i = setInterval(fetchAgents, 10000); return () => clearInterval(i); }, [fetchAgents]);
+  /* ---- subtle pixel grid ---- */
+  ctx.strokeStyle = PAL.grid;
+  ctx.lineWidth = 0.5;
+  for (let gx = 0; gx <= W; gx += 20) {
+    ctx.beginPath();
+    ctx.moveTo(gx, 0);
+    ctx.lineTo(gx, H);
+    ctx.stroke();
+  }
+  for (let gy = 0; gy <= H; gy += 20) {
+    ctx.beginPath();
+    ctx.moveTo(0, gy);
+    ctx.lineTo(W, gy);
+    ctx.stroke();
+  }
 
-  // Animation tick
-  useEffect(() => { const i = setInterval(() => setTick(t => t + 1), 400); return () => clearInterval(i); }, []);
+  /* ---- rooms ---- */
+  for (const r of Object.values(ROOMS)) {
+    const rx = r.x * W;
+    const ry = r.y * H;
+    const rw = r.w * W;
+    const rh = r.h * H;
+    ctx.fillStyle = r.fill;
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.strokeStyle = PAL.walls;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(rx, ry, rw, rh);
+    ctx.fillStyle = PAL.dim;
+    ctx.font = "bold 10px monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(r.label, rx + 8, ry + 6);
+  }
 
-  // Responsive canvas
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const { width, height } = entries[0].contentRect;
-      const w = Math.min(width - 32, 600);
-      const h = Math.min(height - 32, 480);
-      setCanvasSize({ w: Math.max(w, 300), h: Math.max(h, 240) });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  /* ---- outer walls ---- */
+  ctx.strokeStyle = PAL.walls;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(1, 1, W - 2, H - 2);
 
-  // Draw canvas
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const { w, h } = canvasSize;
-    const sx = w / 600, sy = h / 480;
-
-    canvas.width = w; canvas.height = h;
-    ctx.clearRect(0, 0, w, h);
-
-    // Floor
-    ctx.fillStyle = "#1a1a2e";
-    ctx.fillRect(0, 0, w, h);
-
-    // Grid
-    ctx.strokeStyle = "#222244";
-    ctx.lineWidth = 0.5;
-    for (let x = 0; x < w; x += 40 * sx) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
-    for (let y = 0; y < h; y += 40 * sy) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
-
-    // Walls
-    ctx.strokeStyle = "#2a2a4a";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(2, 2, w - 4, h - 4);
-
-    // Rooms
-    Object.values(ROOMS).forEach(room => {
-      const rx = room.x * sx, ry = room.y * sy, rw = room.w * sx, rh = room.h * sy;
-      ctx.fillStyle = room.color;
-      ctx.fillRect(rx, ry, rw, rh);
-      ctx.strokeStyle = "#2a2a4a";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(rx, ry, rw, rh);
-      ctx.fillStyle = "#666";
-      ctx.font = `${Math.round(11 * sx)}px monospace`;
-      ctx.fillText(room.label, rx + 8 * sx, ry + 18 * sy);
-    });
-
-    // Furniture hints
-    // Desks
+  /* ---- furniture hints ---- */
+  {
+    const rm = ROOMS.desk;
+    const rx = rm.x * W;
+    const ry = rm.y * H;
+    const rw = rm.w * W;
+    const rh = rm.h * H;
     for (let i = 0; i < 3; i++) {
-      const dx = (70 + i * 80) * sx, dy = 120 * sy;
       ctx.fillStyle = "#2a2a4a";
-      ctx.fillRect(dx, dy, 50 * sx, 20 * sy);
+      ctx.fillRect(rx + rw * 0.1 + i * rw * 0.28, ry + rh * 0.45, rw * 0.22, rh * 0.12);
     }
-    // Cooler
-    ctx.fillStyle = "#0f4460";
-    ctx.fillRect(440 * sx, 140 * sy, 20 * sx, 20 * sy);
-    // Meeting table
+  }
+  {
+    const rm = ROOMS.meeting;
+    const rx = rm.x * W;
+    const ry = rm.y * H;
+    const rw = rm.w * W;
+    const rh = rm.h * H;
     ctx.fillStyle = "#2a2a3e";
-    ctx.fillRect(100 * sx, 350 * sy, 80 * sx, 40 * sy);
+    ctx.fillRect(rx + rw * 0.25, ry + rh * 0.35, rw * 0.5, rh * 0.3);
+  }
+  {
+    const rm = ROOMS.cooler;
+    const rx = rm.x * W;
+    const ry = rm.y * H;
+    const rw = rm.w * W;
+    const rh = rm.h * H;
+    ctx.fillStyle = "#1a4a6a";
+    ctx.fillRect(rx + rw * 0.7, ry + rh * 0.6, rw * 0.15, rh * 0.2);
+  }
 
-    // Group agents by room
-    const roomAgents: Record<string, AgentData[]> = { desks: [], cooler: [], meeting: [], server: [] };
-    agents.forEach(a => {
-      const room = statusToRoom(a.status);
-      roomAgents[room].push(a);
-    });
-
-    // Draw agents
-    Object.entries(roomAgents).forEach(([roomKey, roomAs]) => {
-      const room = ROOMS[roomKey as keyof typeof ROOMS];
-      roomAs.forEach((agent, i) => {
-        const cols = Math.ceil(Math.sqrt(roomAs.length));
-        const row = Math.floor(i / cols), col = i % cols;
-        const spacing = 60;
-        const ax = (room.x + 40 + col * spacing) * sx;
-        const ay = (room.y + 50 + row * spacing) * sy;
-        const size = 14 * sx;
-        const color = COLORS[agent.id] || COLORS.default;
-        const isHovered = hoveredAgent === agent.id;
-
-        // Idle bob animation
-        let bobY = 0;
-        if (agent.status === "idle") bobY = Math.sin(tick * 0.5 + i) * 2 * sy;
-
-        // Agent sprite
-        ctx.fillStyle = color;
-        ctx.fillRect(ax - size / 2, ay - size / 2 + bobY, size, size);
-        ctx.strokeStyle = isHovered ? "#fff" : "#000";
-        ctx.lineWidth = isHovered ? 2 : 1;
-        ctx.strokeRect(ax - size / 2, ay - size / 2 + bobY, size, size);
-
-        // Status dot
-        const dotSize = 4 * sx;
-        ctx.fillStyle = STATUS_COLORS[agent.status] || "#666";
-        ctx.beginPath();
-        ctx.arc(ax, ay - size / 2 - dotSize + bobY, dotSize, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Blinking cursor for online agents
-        if (agent.status === "online" && tick % 3 !== 0) {
-          ctx.fillStyle = "#10b981";
-          ctx.fillRect(ax + size / 2 + 3 * sx, ay - 3 * sy + bobY, 2 * sx, 8 * sy);
-        }
-
-        // Busy spinner
-        if (agent.status === "busy") {
-          const angle = tick * 0.8;
-          const sr = 6 * sx;
-          ctx.strokeStyle = "#f59e0b";
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(ax, ay + bobY, sr, angle, angle + Math.PI * 1.5);
-          ctx.stroke();
-        }
-
-        // Name label
-        ctx.fillStyle = "#e0e0e0";
-        ctx.font = `${Math.round(10 * sx)}px monospace`;
-        ctx.textAlign = "center";
-        ctx.fillText(agent.name.substring(0, 12), ax, ay + size / 2 + 14 * sy + bobY);
-        ctx.textAlign = "start";
-      });
-    });
-
-    // Server room decoration
-    const srx = 400 * sx, sry = 280 * sy;
-    for (let i = 0; i < 3; i++) {
-      ctx.fillStyle = i === 0 ? "#10b981" : "#2a3a2a";
-      ctx.fillRect(srx + i * 30 * sx, sry, 20 * sx, 40 * sy);
-      // Blinking LED
-      ctx.fillStyle = tick % (4 + i) < 2 ? "#10b981" : "#064e3b";
-      ctx.fillRect(srx + 4 * sx + i * 30 * sx, sry + 4 * sy, 4 * sx, 4 * sy);
+  /* ---- server-room racks ---- */
+  {
+    const rm = ROOMS.server;
+    const rx = rm.x * W;
+    const ry = rm.y * H;
+    const rw = rm.w * W;
+    const rh = rm.h * H;
+    const n = 3;
+    const rackW = 16;
+    const rackH = 30;
+    const gap = (rw - n * rackW) / (n + 1);
+    for (let i = 0; i < n; i++) {
+      const sx = rx + gap + i * (rackW + gap);
+      const sy = ry + rh * 0.38;
+      ctx.fillStyle = "#1a3a1a";
+      ctx.fillRect(sx, sy, rackW, rackH);
+      ctx.strokeStyle = "#2a4a2a";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sx, sy, rackW, rackH);
+      const on1 = Math.sin(t / 300 + i * 1.5) > 0;
+      ctx.fillStyle = gwOk
+        ? on1
+          ? "#22c55e"
+          : "#0a3a0a"
+        : on1
+          ? "#ef4444"
+          : "#3a0a0a";
+      ctx.fillRect(sx + 3, sy + 5, 4, 3);
+      ctx.fillRect(sx + 9, sy + 5, 4, 3);
+      ctx.fillStyle = Math.sin(t / 500 + i * 2) > 0 ? "#3b82f6" : "#0a0a3a";
+      ctx.fillRect(sx + 3, sy + 11, 4, 3);
     }
-    ctx.fillStyle = "#666";
-    ctx.font = `${Math.round(9 * sx)}px monospace`;
-    ctx.fillText("Gateway", srx, sry + 55 * sy);
+    ctx.fillStyle = gwOk ? "#22c55e" : "#ef4444";
+    ctx.font = "9px monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(gwOk ? "GW ONLINE" : "GW OFFLINE", rx + 8, ry + rh - 8);
+  }
 
-  }, [agents, tick, canvasSize, hoveredAgent]);
+  /* ---- agent sprites ---- */
+  const groups: Record<string, Agent[]> = {};
+  for (const a of agents) {
+    if (a.status === "offline") continue;
+    const key = roomForStatus(a.status);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(a);
+  }
 
-  // Canvas mouse tracking for hover
-  const onMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-    const { w, h } = canvasSize;
-    const sx = w / 600, sy = h / 480;
+  for (const [key, list] of Object.entries(groups)) {
+    const rm = ROOMS[key];
+    if (!rm) continue;
+    const rx = rm.x * W;
+    const ry = rm.y * H;
+    const rw = rm.w * W;
+    const rh = rm.h * H;
+    const cols = Math.max(1, Math.ceil(Math.sqrt(list.length)));
+    const rows = Math.max(1, Math.ceil(list.length / cols));
+    const cellW = rw / (cols + 1);
+    const cellH = (rh - 24) / (rows + 1);
 
-    let found: string | null = null;
-    const roomAgents: Record<string, AgentData[]> = { desks: [], cooler: [], meeting: [], server: [] };
-    agents.forEach(a => roomAgents[statusToRoom(a.status)].push(a));
+    list.forEach((agent, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const ax = rx + cellW * (col + 1) - SPRITE / 2;
+      let ay = ry + 24 + cellH * (row + 0.5) - SPRITE / 2;
 
-    Object.entries(roomAgents).forEach(([roomKey, roomAs]) => {
-      const room = ROOMS[roomKey as keyof typeof ROOMS];
-      roomAs.forEach((agent, i) => {
-        const cols = Math.ceil(Math.sqrt(roomAs.length));
-        const row = Math.floor(i / cols), col = i % cols;
-        const ax = (room.x + 40 + col * 60) * sx;
-        const ay = (room.y + 50 + row * 60) * sy;
-        const size = 14 * sx;
-        if (mx >= ax - size && mx <= ax + size && my >= ay - size && my <= ay + size) {
-          found = agent.id;
-        }
-      });
+      /* idle bob (1px up/down every ~500ms) */
+      if (agent.status === "idle") {
+        ay += Math.sin(t / 500 + i * 1.2) * 1.5;
+      }
+
+      /* sprite body (12×12 coloured square) */
+      ctx.fillStyle = agentColor(agent);
+      ctx.fillRect(ax, ay, SPRITE, SPRITE);
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(ax, ay, SPRITE, SPRITE);
+
+      /* status dot (4px) above sprite */
+      ctx.fillStyle = STAT_CLR[agent.status] ?? "#8b8b9e";
+      ctx.beginPath();
+      ctx.arc(ax + SPRITE / 2, ay - 5, DOT_R, 0, Math.PI * 2);
+      ctx.fill();
+
+      /* blinking cursor for online agents (toggles every 600ms) */
+      if (agent.status === "online" && Math.floor(t / 600) % 2 === 0) {
+        ctx.fillStyle = PAL.txt;
+        ctx.fillRect(ax + SPRITE + 3, ay + 2, 2, 8);
+      }
+
+      /* spinning indicator for busy agents */
+      if (agent.status === "busy") {
+        const angle = (t / 200) % (Math.PI * 2);
+        ctx.strokeStyle = "#eab308";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(ax + SPRITE + 7, ay + SPRITE / 2, 4, angle, angle + Math.PI * 1.5);
+        ctx.stroke();
+      }
+
+      /* name below sprite (10px monospace) */
+      ctx.fillStyle = PAL.txt;
+      ctx.font = "10px monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(agent.name, ax + SPRITE / 2, ay + SPRITE + 3);
+      ctx.textAlign = "left";
     });
-    setHoveredAgent(found);
-  }, [agents, canvasSize]);
+  }
+}
 
-  const counts = {
-    online: agents.filter(a => a.status === "online").length,
-    busy: agents.filter(a => a.status === "busy").length,
-    idle: agents.filter(a => a.status === "idle").length,
-    offline: agents.filter(a => a.status === "offline").length,
-  };
+/* ================================================================== */
+/*  Component                                                          */
+/* ================================================================== */
 
+interface GwStatus {
+  ok: boolean;
+  status: string;
+  agentCount: number;
+  sessionCount: number;
+}
+
+export default function OfficePage() {
+  /* ---- refs (shared with animation loop) ---- */
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef(0);
+  const dataRef = useRef<{ agents: Agent[]; gwOk: boolean }>({
+    agents: [],
+    gwOk: false,
+  });
+  const sizeRef = useRef({ w: 600, h: 480 });
+
+  /* ---- state ---- */
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [source, setSource] = useState<"live" | "mock">("mock");
+  const [gw, setGw] = useState<GwStatus>({
+    ok: false,
+    status: "unknown",
+    agentCount: 0,
+    sessionCount: 0,
+  });
+  const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const [now, setNow] = useState(Date.now());
+
+  /* keep animation-loop refs in sync with React state */
+  useEffect(() => {
+    dataRef.current = { agents, gwOk: gw.ok };
+  }, [agents, gw.ok]);
+
+  /* ---- data polling (agents + gateway every 10 s) ---- */
+  useEffect(() => {
+    let alive = true;
+    async function poll() {
+      try {
+        const [aRes, gRes] = await Promise.all([
+          fetch("/api/agents"),
+          fetch("/api/gateway"),
+        ]);
+        if (!alive) return;
+        const aJson = await aRes.json();
+        const gJson = await gRes.json();
+        setAgents(aJson.agents ?? []);
+        setSource(aJson.source ?? "mock");
+        setGw({
+          ok: gJson.ok ?? false,
+          status: gJson.status ?? "unknown",
+          agentCount: gJson.agentCount ?? 0,
+          sessionCount: gJson.sessionCount ?? 0,
+        });
+        setLastUpdated(new Date());
+      } catch {
+        /* keep stale data on network failure */
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+    poll();
+    const id = setInterval(poll, POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  /* ---- "seconds ago" ticker ---- */
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, []);
+
+  /* ---- responsive canvas + mobile breakpoint ---- */
+  useEffect(() => {
+    function checkMobile() {
+      setIsMobile(window.innerWidth < MOBILE_BP);
+    }
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+
+    const wrap = wrapRef.current;
+    if (!wrap) {
+      return () => window.removeEventListener("resize", checkMobile);
+    }
+
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) {
+        const { width, height } = e.contentRect;
+        if (width < 1 || height < 1) continue;
+        sizeRef.current = { w: width, h: height };
+        const cvs = canvasRef.current;
+        if (cvs) {
+          const dpr = window.devicePixelRatio || 1;
+          cvs.width = Math.floor(width * dpr);
+          cvs.height = Math.floor(height * dpr);
+          cvs.style.width = `${width}px`;
+          cvs.style.height = `${height}px`;
+        }
+      }
+    });
+    ro.observe(wrap);
+
+    return () => {
+      window.removeEventListener("resize", checkMobile);
+      ro.disconnect();
+    };
+  }, []);
+
+  /* ---- animation loop (requestAnimationFrame) ---- */
+  useEffect(() => {
+    if (loading || isMobile) return;
+    const cvs = canvasRef.current;
+    if (!cvs) return;
+    const ctx = cvs.getContext("2d");
+    if (!ctx) return;
+
+    const c = ctx; // capture narrowed non-null type for closure
+    let active = true;
+    function frame(t: number) {
+      if (!active) return;
+      const dpr = window.devicePixelRatio || 1;
+      const { w, h } = sizeRef.current;
+      c.save();
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paint(c, w, h, dataRef.current.agents, dataRef.current.gwOk, t);
+      c.restore();
+      frameRef.current = requestAnimationFrame(frame);
+    }
+
+    frameRef.current = requestAnimationFrame(frame);
+    return () => {
+      active = false;
+      cancelAnimationFrame(frameRef.current);
+    };
+  }, [loading, isMobile]);
+
+  /* ---- derived values ---- */
+  const counts = agents.reduce<Record<string, number>>((m, a) => {
+    m[a.status] = (m[a.status] ?? 0) + 1;
+    return m;
+  }, {});
+
+  const agoSec =
+    lastUpdated != null
+      ? Math.max(0, Math.round((now - lastUpdated.getTime()) / 1000))
+      : null;
+
+  /* ---- loading screen ---- */
+  if (loading) {
+    return (
+      <>
+        <Header
+          title="Office"
+          subtitle="2D pixel-art office — agents at desks, coolers, and meetings"
+        />
+        <div className="flex flex-1 items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <div className="h-8 w-8 animate-pulse rounded bg-[var(--color-accent-muted)]" />
+            <p className="text-sm text-[var(--color-text-secondary)]">
+              Loading office…
+            </p>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  /* ---- main layout ---- */
   return (
     <>
       <Header
         title="Office"
         subtitle="2D pixel-art office — agents at desks, coolers, and meetings"
       />
-      <div className="flex flex-1 overflow-hidden">
-        {/* Canvas area */}
-        <div ref={containerRef} className="flex flex-1 items-center justify-center p-4">
-          {loading ? (
-            <div className="flex flex-col items-center gap-3">
-              <div className="h-8 w-8 animate-pulse rounded bg-[var(--color-accent-muted)]" />
-              <span className="text-sm text-[var(--color-text-tertiary)]">Loading office...</span>
-            </div>
-          ) : (
-            <canvas
-              ref={canvasRef}
-              className="rounded-xl border border-[var(--color-border)] cursor-crosshair"
-              onMouseMove={onMouseMove}
-              onMouseLeave={() => setHoveredAgent(null)}
-            />
-          )}
-        </div>
 
-        {/* Sidebar */}
-        <div className="w-64 shrink-0 border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Agents</h3>
-            <div className="flex items-center gap-2">
-              <span className={`rounded px-1.5 py-0.5 text-[10px] ${source === "live" ? "bg-emerald-500/20 text-emerald-400" : "bg-purple-500/20 text-purple-400"}`}>
-                {source === "live" ? "📡 Live" : "🎭 Demo"}
-              </span>
-              <button onClick={fetchAgents} className="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)]">
-                <RefreshCw className="h-3 w-3" />
-              </button>
+      <div className="flex flex-1 overflow-hidden">
+        {/* ---- Canvas / mobile fallback ---- */}
+        {!isMobile ? (
+          <div className="relative flex-1 p-4">
+            <div
+              ref={wrapRef}
+              className="h-full w-full overflow-hidden rounded-lg border border-[var(--color-border-subtle)]"
+            >
+              <canvas ref={canvasRef} className="block" />
+            </div>
+            <div
+              className="absolute left-7 top-7 rounded px-2 py-0.5 text-[10px] text-[var(--color-text-secondary)]"
+              style={{ backgroundColor: "rgba(26, 26, 36, 0.85)" }}
+            >
+              {source === "live" ? "📡 Live" : "🎭 Demo"}
             </div>
           </div>
-
-          {/* Counts */}
-          <div className="mb-4 grid grid-cols-2 gap-2">
-            {[
-              { label: "Online", count: counts.online, icon: Monitor, color: "#10b981" },
-              { label: "Busy", count: counts.busy, icon: Users, color: "#f59e0b" },
-              { label: "Idle", count: counts.idle, icon: Coffee, color: "#6b7280" },
-              { label: "Offline", count: counts.offline, icon: WifiOff, color: "#ef4444" },
-            ].map(s => (
-              <div key={s.label} className="flex items-center gap-2 rounded-lg bg-[var(--color-bg-tertiary)] p-2">
-                <s.icon className="h-3 w-3" style={{ color: s.color }} />
-                <span className="text-xs text-[var(--color-text-secondary)]">{s.count} {s.label}</span>
+        ) : (
+          <div className="flex-1 space-y-2 overflow-y-auto p-4">
+            <span className="mb-2 inline-block rounded bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[10px] text-[var(--color-text-secondary)]">
+              {source === "live" ? "📡 Live" : "🎭 Demo"}
+            </span>
+            {agents.map((a) => (
+              <div
+                key={a.id}
+                className="flex items-center gap-3 rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] px-3 py-2"
+              >
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: STAT_CLR[a.status] }}
+                />
+                <span
+                  className="h-3 w-3 shrink-0 rounded-sm"
+                  style={{ backgroundColor: agentColor(a) }}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-[var(--color-text-primary)]">
+                    {a.name}
+                  </p>
+                  <p className="text-[10px] text-[var(--color-text-tertiary)]">
+                    {a.role} · {LOC[a.status] ?? a.status}
+                  </p>
+                </div>
               </div>
             ))}
           </div>
+        )}
+
+        {/* ---- Sidebar ---- */}
+        <aside className="flex w-56 shrink-0 flex-col gap-4 overflow-y-auto border-l border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] p-4">
+          {/* Gateway health */}
+          <section>
+            <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-tertiary)]">
+              Gateway
+            </h3>
+            <div className="flex items-center gap-2">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: gw.ok ? "#22c55e" : "#ef4444" }}
+              />
+              <span className="text-xs text-[var(--color-text-secondary)]">
+                {gw.ok ? "Connected" : "Disconnected"}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">
+              {gw.agentCount} agent{gw.agentCount !== 1 ? "s" : ""} ·{" "}
+              {gw.sessionCount} session{gw.sessionCount !== 1 ? "s" : ""}
+            </p>
+          </section>
+
+          {/* Status counts */}
+          <section>
+            <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-tertiary)]">
+              Summary
+            </h3>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(["online", "busy", "idle", "offline"] as const).map((s) => (
+                <div
+                  key={s}
+                  className="rounded bg-[var(--color-bg-tertiary)] px-2 py-1 text-center"
+                >
+                  <span className="flex items-center justify-center gap-1 text-xs font-medium text-[var(--color-text-primary)]">
+                    <span
+                      className="inline-block h-1.5 w-1.5 rounded-full"
+                      style={{ backgroundColor: STAT_CLR[s] }}
+                    />
+                    {counts[s] ?? 0}
+                  </span>
+                  <p className="text-[9px] capitalize text-[var(--color-text-tertiary)]">
+                    {s}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
 
           {/* Agent list */}
-          <div className="space-y-2">
-            {agents.map(agent => (
-              <div
-                key={agent.id}
-                className={`rounded-lg border p-2 transition-colors ${
-                  hoveredAgent === agent.id
-                    ? "border-[var(--color-accent)] bg-[var(--color-accent-muted)]"
-                    : "border-[var(--color-border)] bg-[var(--color-bg-primary)]"
-                }`}
-                onMouseEnter={() => setHoveredAgent(agent.id)}
-                onMouseLeave={() => setHoveredAgent(null)}
-              >
-                <div className="flex items-center gap-2">
-                  <div
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: STATUS_COLORS[agent.status] }}
+          <section className="flex-1">
+            <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-tertiary)]">
+              Agents
+            </h3>
+            <div className="space-y-1">
+              {agents.map((a) => (
+                <div
+                  key={a.id}
+                  className="flex items-center gap-2 rounded px-2 py-1 transition-colors hover:bg-[var(--color-bg-hover)]"
+                >
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: STAT_CLR[a.status] }}
                   />
-                  <span className="text-xs font-medium text-[var(--color-text-primary)]">
-                    {agent.name}
-                  </span>
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                    style={{ backgroundColor: agentColor(a) }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium text-[var(--color-text-primary)]">
+                      {a.name}
+                    </p>
+                    <p className="truncate text-[9px] text-[var(--color-text-tertiary)]">
+                      {LOC[a.status] ?? a.status}
+                    </p>
+                  </div>
                 </div>
-                <div className="ml-4.5 mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">
-                  {agent.role} · {agent.status}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Gateway status */}
-          <div className="mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2">
-            <div className="flex items-center gap-2">
-              <Server className="h-3 w-3 text-emerald-400" />
-              <span className="text-xs text-[var(--color-text-secondary)]">Gateway</span>
-              <Wifi className="ml-auto h-3 w-3 text-emerald-400" />
+              ))}
             </div>
-          </div>
-        </div>
+          </section>
+
+          {/* Last updated */}
+          {agoSec != null && (
+            <p className="text-[10px] text-[var(--color-text-tertiary)]">
+              Last updated: {agoSec}s ago
+            </p>
+          )}
+        </aside>
       </div>
     </>
   );

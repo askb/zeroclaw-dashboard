@@ -85,7 +85,9 @@ async function withGatewayConnection<T>(
   const { default: WebSocket } = await import("ws");
 
   return new Promise<T>((resolve, reject) => {
-    const ws = new WebSocket(url);
+    // Pass an explicit origin so the gateway's allowedOrigins check succeeds
+    // when connecting from inside Docker (the ws library omits Origin by default).
+    const ws = new WebSocket(url, { origin: "http://localhost:4000" });
     const pending = new Map<string, { resolve: (v: Record<string, unknown>) => void; reject: (e: Error) => void }>();
     const eventWaiters = new Map<string, { resolve: (v: Record<string, unknown>) => void; timer: ReturnType<typeof setTimeout> }>();
     let connected = false;

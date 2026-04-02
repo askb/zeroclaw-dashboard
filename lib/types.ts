@@ -101,6 +101,6 @@ export interface UsageResponse {
   days: number;
   daily: DailyUsage[];
   totals: DailyUsage;
-  source: "live" | "mock" | "unavailable";
+  source: "live" | "mock" | "stale" | "unavailable";
   error?: string;
 }

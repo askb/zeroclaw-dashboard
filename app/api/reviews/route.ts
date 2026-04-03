@@ -23,7 +23,26 @@ const GITHUB_REPOS = [
   "askb/lfreleng-actions",
 ];
 
-const GERRIT_PROJECTS = ["releng/builder", "releng/global-jjb"];
+const GERRIT_PROJECTS = [
+  "releng/builder",
+  "releng/global-jjb",
+  "releng/lftools",
+  "odlparent",
+  "controller",
+  "netconf",
+  "mdsal",
+  "yangtools",
+  "aaa",
+  "bgpcep",
+  "daexim",
+  "transportpce",
+  "gnmi",
+  "infrautils",
+  "lispflowmapping",
+  "ovsdb",
+  "openflowplugin",
+  "genius",
+];
 
 const REVIEWS_FILE = join(
   process.env.REVIEWS_DATA_DIR || "/app/data",
@@ -136,7 +155,7 @@ async function fetchGitHubIncomingPRs(token: string): Promise<ReviewItem[]> {
       repo,
       title: pr.title,
       author: pr.user.login,
-      url: pr.html_url,
+      url: pr.pull_request ? pr.html_url.replace(/\/issues\//, "/pull/") : pr.html_url,
       age_days: daysSince(pr.created_at),
       ci_status: "unknown" as const,
       needs_attention: daysSince(pr.created_at) > 3,
@@ -168,7 +187,7 @@ async function fetchGitHubMyPRs(token: string): Promise<ReviewItem[]> {
       repo,
       title: pr.title,
       author: pr.user.login,
-      url: pr.html_url,
+      url: pr.pull_request ? pr.html_url.replace(/\/issues\//, "/pull/") : pr.html_url,
       age_days: daysSince(pr.created_at),
       ci_status: "unknown" as const,
       needs_attention: hasReviewLabel || daysSince(pr.created_at) > 7,
@@ -317,7 +336,7 @@ async function fetchGerritPendingReviews(
   pass?: string,
 ): Promise<ReviewItem[]> {
   const query = encodeURIComponent(
-    `status:open reviewer:self (${GERRIT_PROJECTS.map((p) => `project:${p}`).join(" OR ")})`,
+    `status:open reviewer:askb (${GERRIT_PROJECTS.map((p) => `project:${p}`).join(" OR ")})`,
   );
   const changes = (await gerritFetch(
     `/a/changes/?q=${query}&o=LABELS&o=DETAILED_ACCOUNTS&n=20`,
@@ -335,7 +354,7 @@ async function fetchGerritMyChanges(
   pass?: string,
 ): Promise<ReviewItem[]> {
   const query = encodeURIComponent(
-    `status:open owner:self (${GERRIT_PROJECTS.map((p) => `project:${p}`).join(" OR ")})`,
+    `status:open owner:askb (${GERRIT_PROJECTS.map((p) => `project:${p}`).join(" OR ")})`,
   );
   const changes = (await gerritFetch(
     `/a/changes/?q=${query}&o=LABELS&o=DETAILED_ACCOUNTS&n=20`,

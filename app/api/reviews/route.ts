@@ -45,7 +45,7 @@ const GERRIT_PROJECTS = [
 ];
 
 const REVIEWS_FILE = join(
-  process.env.REVIEWS_DATA_DIR || "/app/data",
+  process.env.REVIEWS_DATA_DIR || "/app/data/reviews",
   "reviews.json",
 );
 
@@ -87,15 +87,23 @@ async function gerritFetch(
 ): Promise<unknown> {
   const headers: Record<string, string> = {
     Accept: "application/json",
+    "User-Agent":
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) ZeroClaw-Dashboard/1.0",
   };
   if (user && pass) {
     headers.Authorization = `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
   }
-  const resp = await fetch(`${GERRIT_API}${endpoint}`, {
+  // Use public API (no /a/ prefix) to avoid Cloudflare auth challenges
+  const publicEndpoint = endpoint.replace(/^\/a\//, "/");
+  const resp = await fetch(`${GERRIT_API}${publicEndpoint}`, {
     headers,
     signal: AbortSignal.timeout(15_000),
   });
-  if (!resp.ok) throw new Error(`Gerrit ${resp.status}: ${endpoint}`);
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    console.error(`Gerrit ${resp.status} for ${publicEndpoint}: ${body.slice(0, 200)}`);
+    throw new Error(`Gerrit ${resp.status}: ${publicEndpoint}`);
+  }
   // Gerrit prefixes JSON with )]}' — strip it
   const text = await resp.text();
   const cleaned = text.replace(/^\)\]\}'\n?/, "");
@@ -127,6 +135,7 @@ interface GHWorkflowRun {
   conclusion: string | null;
   created_at: string;
   display_title: string;
+  repository?: { full_name: string };
 }
 
 interface GHAlert {
@@ -353,11 +362,10 @@ async function fetchGerritMyChanges(
   user?: string,
   pass?: string,
 ): Promise<ReviewItem[]> {
-  const query = encodeURIComponent(
-    `status:open owner:askb (${GERRIT_PROJECTS.map((p) => `project:${p}`).join(" OR ")})`,
-  );
+  // Show ALL my open changes, not limited to project list
+  const query = encodeURIComponent(`status:open owner:askb`);
   const changes = (await gerritFetch(
-    `/a/changes/?q=${query}&o=LABELS&o=DETAILED_ACCOUNTS&n=20`,
+    `/a/changes/?q=${query}&o=LABELS&o=DETAILED_ACCOUNTS&n=30`,
     user,
     pass,
   )) as GerritChange[];
@@ -568,9 +576,104 @@ function getMockData(): ReviewsResponse {
 async function readFromFile(): Promise<ReviewsResponse | null> {
   try {
     const raw = await readFile(REVIEWS_FILE, "utf-8");
-    const data = JSON.parse(raw) as ReviewsResponse;
-    return data;
-  } catch {
+    const dump = JSON.parse(raw);
+
+    // Check if it's already in ReviewsResponse format
+    if (dump.summary) return dump as ReviewsResponse;
+
+    // Transform raw dump format (from dump-reviews.py)
+    const gerritRaw = dump.gerrit_raw ?? {};
+    const githubRaw = dump.github_raw ?? {};
+
+    const transformGerritChange = (
+      c: GerritChange,
+      type: ReviewItem["type"],
+    ): ReviewItem => gerritChangeToReview(c, type);
+
+    const transformGHPR = (
+      pr: GHIssue,
+      type: ReviewItem["type"],
+    ): ReviewItem => {
+      const repoMatch = pr.repository_url?.match(/repos\/(.+)$/);
+      const repo = repoMatch ? repoMatch[1] : "unknown";
+      return {
+        id: `gh-${type}-${pr.id}`,
+        source: "github",
+        type,
+        repo,
+        title: pr.title,
+        author: pr.user?.login ?? "unknown",
+        url: pr.pull_request
+          ? pr.html_url.replace(/\/issues\//, "/pull/")
+          : pr.html_url,
+        age_days: daysSince(pr.created_at),
+        ci_status: "unknown",
+        needs_attention: daysSince(pr.created_at) > 3,
+        labels: (pr.labels ?? []).map((l: { name: string }) => l.name),
+        created_at: pr.created_at,
+      };
+    };
+
+    const incomingPRs = (githubRaw.incoming_prs ?? []).map((pr: GHIssue) =>
+      transformGHPR(pr, "incoming_pr"),
+    );
+    const myPRs = (githubRaw.my_prs ?? []).map((pr: GHIssue) =>
+      transformGHPR(pr, "my_pr"),
+    );
+    const failedWorkflows: WorkflowRun[] = (
+      githubRaw.failed_workflows ?? []
+    ).map((run: GHWorkflowRun) => ({
+      id: `wf-${run.id}`,
+      repo: run.repository?.full_name ?? "unknown",
+      name: run.name ?? "unknown",
+      branch: run.head_branch ?? "unknown",
+      status: "failure" as const,
+      url: run.html_url,
+      created_at: run.created_at,
+    }));
+
+    const pendingReviews = (gerritRaw.pending_reviews ?? []).map(
+      (c: GerritChange) => transformGerritChange(c, "gerrit_review"),
+    );
+    const myChanges = (gerritRaw.my_changes ?? []).map(
+      (c: GerritChange) => transformGerritChange(c, "my_change"),
+    );
+    const recentlyMerged = (gerritRaw.recently_merged ?? []).map(
+      (c: GerritChange) => transformGerritChange(c, "my_change"),
+    );
+
+    const allItems = [...incomingPRs, ...myPRs, ...pendingReviews, ...myChanges];
+    const staleCount = allItems.filter((i) => i.age_days > 14).length;
+
+    // Check file freshness
+    const fileAge = Date.now() - new Date(dump.timestamp ?? 0).getTime();
+    const source = fileAge > 10 * 60 * 1000 ? "stale" : "live";
+
+    return {
+      source,
+      timestamp: dump.timestamp ?? new Date().toISOString(),
+      summary: {
+        incoming_prs: incomingPRs.length,
+        my_prs_attention: myPRs.filter((p: ReviewItem) => p.needs_attention).length,
+        failed_workflows: failedWorkflows.length,
+        gerrit_reviews: pendingReviews.length,
+        dependabot_alerts: 0,
+        stale_items: staleCount,
+      },
+      github: {
+        incoming_prs: incomingPRs,
+        my_prs: myPRs,
+        failed_workflows: failedWorkflows,
+        dependabot_alerts: [],
+      },
+      gerrit: {
+        pending_reviews: pendingReviews,
+        my_changes: myChanges,
+        recently_merged: recentlyMerged,
+      },
+    };
+  } catch (e) {
+    console.error("readFromFile failed:", (e as Error).message);
     return null;
   }
 }
@@ -580,19 +683,18 @@ async function readFromFile(): Promise<ReviewsResponse | null> {
 // ---------------------------------------------------------------------------
 
 async function fetchLiveData(): Promise<ReviewsResponse> {
+  // Always try file first — Gerrit API is blocked by Cloudflare from Docker
+  // The dump-reviews.py cron job writes fresh data every 5 minutes
+  const fileData = await readFromFile();
+  if (fileData) return fileData;
+
+  // Fallback: try direct API queries (works for GitHub, not Gerrit)
   const githubToken = process.env.GITHUB_RO_TOKEN;
   const gerritUser = process.env.GERRIT_HTTP_USER;
   const gerritPass = process.env.GERRIT_HTTP_PASS;
 
   const hasGitHub = Boolean(githubToken);
   const hasGerrit = Boolean(gerritUser && gerritPass);
-
-  // If no credentials at all, try file fallback then demo
-  if (!hasGitHub && !hasGerrit) {
-    const fileData = await readFromFile();
-    if (fileData) return { ...fileData, source: "stale" };
-    return getMockData();
-  }
 
   // Fetch all data in parallel with individual error isolation
   const [incomingPRs, myPRs, failedWorkflows, dependabotAlerts] =
@@ -618,17 +720,17 @@ async function fetchLiveData(): Promise<ReviewsResponse> {
   const [pendingReviews, myChanges, recentlyMerged] = await Promise.all([
     hasGerrit
       ? fetchGerritPendingReviews(gerritUser, gerritPass).catch(
-          () => [] as ReviewItem[],
+          (e) => { console.error("Gerrit pending reviews failed:", e.message); return [] as ReviewItem[]; },
         )
       : Promise.resolve([] as ReviewItem[]),
     hasGerrit
       ? fetchGerritMyChanges(gerritUser, gerritPass).catch(
-          () => [] as ReviewItem[],
+          (e) => { console.error("Gerrit my changes failed:", e.message); return [] as ReviewItem[]; },
         )
       : Promise.resolve([] as ReviewItem[]),
     hasGerrit
       ? fetchGerritRecentlyMerged(gerritUser, gerritPass).catch(
-          () => [] as ReviewItem[],
+          (e) => { console.error("Gerrit recently merged failed:", e.message); return [] as ReviewItem[]; },
         )
       : Promise.resolve([] as ReviewItem[]),
   ]);

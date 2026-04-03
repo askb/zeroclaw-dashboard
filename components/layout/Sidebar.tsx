@@ -13,12 +13,16 @@ import {
   FileText,
   Users,
   Building2,
+  GitPullRequest,
+  MessageCircle,
   Cog,
   Zap,
 } from "lucide-react";
 
 const navItems = [
   { href: "/tasks", label: "Tasks", icon: LayoutDashboard },
+  { href: "/reviews", label: "Reviews", icon: GitPullRequest },
+  { href: "/conversations", label: "Conversations", icon: MessageCircle },
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/projects", label: "Projects", icon: FolderKanban },
   { href: "/memory", label: "Memory", icon: Brain },

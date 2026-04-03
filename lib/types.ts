@@ -104,3 +104,88 @@ export interface UsageResponse {
   source: "live" | "mock" | "stale" | "unavailable";
   error?: string;
 }
+
+/** A pull request or review item */
+export interface ReviewItem {
+  id: string;
+  source: "github" | "gerrit";
+  type: "incoming_pr" | "my_pr" | "gerrit_review" | "my_change";
+  repo: string;
+  title: string;
+  author: string;
+  url: string;
+  age_days: number;
+  ci_status: "success" | "failure" | "pending" | "unknown";
+  needs_attention: boolean;
+  labels?: string[];
+  scores?: { cr: number; v: number };
+  created_at: string;
+}
+
+export interface WorkflowRun {
+  id: string;
+  repo: string;
+  name: string;
+  branch: string;
+  status: "failure" | "success";
+  url: string;
+  error?: string;
+  created_at: string;
+}
+
+/** A conversation message */
+export interface ConversationMessage {
+  id: string;
+  role: "user" | "agent" | "system";
+  content: string;
+  timestamp: string;
+  agent?: string;
+}
+
+/** A conversation thread */
+export interface Conversation {
+  id: string;
+  channel: "telegram" | "discord";
+  discord_channel?: string;
+  title: string;
+  preview: string;
+  messages: ConversationMessage[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** Conversations API response */
+export interface ConversationsResponse {
+  source: "live" | "demo";
+  conversations: Conversation[];
+  total: number;
+}
+
+export interface ReviewsResponse {
+  source: "live" | "demo" | "stale";
+  timestamp: string;
+  summary: {
+    incoming_prs: number;
+    my_prs_attention: number;
+    failed_workflows: number;
+    gerrit_reviews: number;
+    dependabot_alerts: number;
+    stale_items: number;
+  };
+  github: {
+    incoming_prs: ReviewItem[];
+    my_prs: ReviewItem[];
+    failed_workflows: WorkflowRun[];
+    dependabot_alerts: Array<{
+      repo: string;
+      package: string;
+      severity: string;
+      url: string;
+    }>;
+  };
+  gerrit: {
+    pending_reviews: ReviewItem[];
+    my_changes: ReviewItem[];
+    recently_merged: ReviewItem[];
+  };
+}

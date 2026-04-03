@@ -482,7 +482,7 @@ export default function OfficePage() {
   /* ---- loading screen ---- */
   if (loading) {
     return (
-      <>
+      <div className="flex flex-1 flex-col overflow-hidden">
         <Header
           title="Office"
           subtitle="2D pixel-art office — agents at desks, coolers, and meetings"
@@ -495,19 +495,19 @@ export default function OfficePage() {
             </p>
           </div>
         </div>
-      </>
+      </div>
     );
   }
 
   /* ---- main layout ---- */
   return (
-    <>
+    <div className="flex flex-1 flex-col overflow-hidden">
       <Header
         title="Office"
         subtitle="2D pixel-art office — agents at desks, coolers, and meetings"
       />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* ---- Canvas / mobile fallback ---- */}
         {!isMobile ? (
           <div className="relative flex-1 p-4">
@@ -643,6 +643,6 @@ export default function OfficePage() {
           )}
         </aside>
       </div>
-    </>
+    </div>
   );
 }

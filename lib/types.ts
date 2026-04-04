@@ -189,3 +189,35 @@ export interface ReviewsResponse {
     recently_merged: ReviewItem[];
   };
 }
+
+/** An autonomous coding job executed by PopeBot */
+export interface CodingJob {
+  job_id: string;
+  task: string;
+  repo: string;
+  branch: string;
+  status:
+    | "queued"
+    | "started"
+    | "coding"
+    | "completed"
+    | "partial"
+    | "no_changes"
+    | "rejected"
+    | "failed"
+    | "timeout";
+  started_at: string | null;
+  completed_at: string | null;
+  pr_url: string | null;
+  pr_number: number | null;
+  error: string | null;
+  model: string;
+  triggered_by: string;
+}
+
+/** Jobs API response */
+export interface JobsResponse {
+  jobs: CodingJob[];
+  source: string;
+  lastUpdated: string | null;
+}

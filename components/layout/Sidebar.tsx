@@ -15,6 +15,7 @@ import {
   Building2,
   GitPullRequest,
   MessageCircle,
+  Hammer,
   Cog,
   Zap,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import {
 const navItems = [
   { href: "/tasks", label: "Tasks", icon: LayoutDashboard },
   { href: "/reviews", label: "Reviews", icon: GitPullRequest },
+  { href: "/jobs", label: "Jobs", icon: Hammer },
   { href: "/conversations", label: "Conversations", icon: MessageCircle },
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/projects", label: "Projects", icon: FolderKanban },

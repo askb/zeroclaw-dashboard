@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Anil Belur <askb23@gmail.com>
 
 FROM node:22-alpine AS base
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 WORKDIR /app
 
 # Dependencies

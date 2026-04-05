@@ -10,12 +10,11 @@
  * that the GATEWAY_TOKEN is never exposed to the browser.
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type {
   Agent,
   Task,
   ActivityEvent,
-  AgentStatus,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -235,10 +234,6 @@ export function useTasks(): UseTasksResult {
 // Activity feed hook
 // ---------------------------------------------------------------------------
 
-interface ActivityResponse {
-  events: ActivityEvent[];
-}
-
 /**
  * Hook that returns recent activity events.  Since the gateway doesn't have
  * a dedicated activity feed, this derives events from gateway health checks
@@ -246,9 +241,8 @@ interface ActivityResponse {
  */
 export function useActivityFeed(): { events: ActivityEvent[]; loading: boolean } {
   const { status, gatewayHealth } = useGatewayConnection();
-  const [events, setEvents] = useState<ActivityEvent[]>([]);
 
-  useEffect(() => {
+  const events = useMemo(() => {
     const now = new Date();
     const newEvents: ActivityEvent[] = [];
 
@@ -297,7 +291,7 @@ export function useActivityFeed(): { events: ActivityEvent[]; loading: boolean }
       },
     );
 
-    setEvents(newEvents);
+    return newEvents;
   }, [status, gatewayHealth]);
 
   return { events, loading: status === "connecting" };

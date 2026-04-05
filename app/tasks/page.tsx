@@ -108,14 +108,18 @@ export default function TasksPage() {
 
   // DnD only works after client hydration
   useEffect(() => {
-    setMounted(true);
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
   }, []);
 
   // Sync API tasks into local state once loaded
   useEffect(() => {
     if (initialTasks.length > 0 && !initialized) {
-      setLocalTasks(initialTasks);
-      setInitialized(true);
+      const id = requestAnimationFrame(() => {
+        setLocalTasks(initialTasks);
+        setInitialized(true);
+      });
+      return () => cancelAnimationFrame(id);
     }
   }, [initialTasks, initialized]);
 

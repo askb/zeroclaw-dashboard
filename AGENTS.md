@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+
 # SPDX-FileCopyrightText: 2026 Anil Belur <askb23@gmail.com>
 
 # ZeroClaw Dashboard — Agent Guide
@@ -14,6 +15,7 @@ This repository follows the ZeroClaw Constitution located at:
 `askb/zeroclaw-mission-control → .specify/memory/constitution.md`
 
 Key rules:
+
 - **Analysis-first**: Read before writing. Propose before executing.
 - **PR-only**: All changes via branch + PR. Never push to main.
 - **SPDX headers**: Every file needs `Apache-2.0` header.

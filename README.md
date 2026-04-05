@@ -15,16 +15,16 @@ orchestration, task management, and real-time monitoring.
 
 ## Features
 
-| Screen       | Shortcut | Description                                       |
-| ------------ | -------- | ------------------------------------------------- |
-| **Tasks**    | `g t`    | Kanban board with 4 columns + live activity feed  |
-| **Calendar** | `g c`    | Cron jobs and scheduled tasks on a monthly grid   |
-| **Projects** | `g p`    | Goal tracking with AI reverse prompting           |
-| **Memory**   | `g m`    | Searchable daily journal of agent memory          |
-| **Docs**     | `g d`    | Centralized documentation repository browser      |
-| **Team**     | `g e`    | Agent org chart with mission statement            |
-| **Office**   | `g o`    | 2D pixel-art visualization of agent activity      |
-| **Settings** | `g s`    | Dashboard configuration and preferences           |
+| Screen       | Shortcut | Description                                      |
+| ------------ | -------- | ------------------------------------------------ |
+| **Tasks**    | `g t`    | Kanban board with 4 columns + live activity feed |
+| **Calendar** | `g c`    | Cron jobs and scheduled tasks on a monthly grid  |
+| **Projects** | `g p`    | Goal tracking with AI reverse prompting          |
+| **Memory**   | `g m`    | Searchable daily journal of agent memory         |
+| **Docs**     | `g d`    | Centralized documentation repository browser     |
+| **Team**     | `g e`    | Agent org chart with mission statement           |
+| **Office**   | `g o`    | 2D pixel-art visualization of agent activity     |
+| **Settings** | `g s`    | Dashboard configuration and preferences          |
 
 ## Quick Start
 
@@ -99,30 +99,30 @@ seamlessly.
 
 ## Keyboard Shortcuts
 
-| Shortcut | Action          |
-| -------- | --------------- |
-| `g t`    | Go to Tasks     |
-| `g c`    | Go to Calendar  |
-| `g p`    | Go to Projects  |
-| `g m`    | Go to Memory    |
-| `g d`    | Go to Docs      |
-| `g e`    | Go to Team      |
-| `g o`    | Go to Office    |
-| `g s`    | Go to Settings  |
-| `?`      | Show help       |
+| Shortcut | Action         |
+| -------- | -------------- |
+| `g t`    | Go to Tasks    |
+| `g c`    | Go to Calendar |
+| `g p`    | Go to Projects |
+| `g m`    | Go to Memory   |
+| `g d`    | Go to Docs     |
+| `g e`    | Go to Team     |
+| `g o`    | Go to Office   |
+| `g s`    | Go to Settings |
+| `?`      | Show help      |
 
 ## CI/CD
 
-| Workflow                 | Trigger                | Description                          |
-| ------------------------ | ---------------------- | ------------------------------------ |
-| **Lint**                 | push, PR               | ESLint, TypeScript check, pre-commit |
-| **Build**                | push, PR               | Next.js build + Docker image build   |
-| **Security Audit**       | push, PR, weekly cron  | pnpm audit + detect-secrets scan     |
-| **Semantic PR**          | PR open/edit           | Enforce conventional commit titles   |
-| **SHA Pinned Actions**   | PR (.github/ changes)  | Verify all actions use SHA pins      |
-| **Draft Release**        | push to main           | Auto-draft release notes             |
-| **Copilot Auto-assign**  | issue labeled "copilot"| Assign Copilot agent to issues       |
-| **Copilot Setup Steps**  | manual, push           | Environment setup for Copilot agent  |
+| Workflow                | Trigger                 | Description                          |
+| ----------------------- | ----------------------- | ------------------------------------ |
+| **Lint**                | push, PR                | ESLint, TypeScript check, pre-commit |
+| **Build**               | push, PR                | Next.js build + Docker image build   |
+| **Security Audit**      | push, PR, weekly cron   | pnpm audit + detect-secrets scan     |
+| **Semantic PR**         | PR open/edit            | Enforce conventional commit titles   |
+| **SHA Pinned Actions**  | PR (.github/ changes)   | Verify all actions use SHA pins      |
+| **Draft Release**       | push to main            | Auto-draft release notes             |
+| **Copilot Auto-assign** | issue labeled "copilot" | Assign Copilot agent to issues       |
+| **Copilot Setup Steps** | manual, push            | Environment setup for Copilot agent  |
 
 ## Development
 

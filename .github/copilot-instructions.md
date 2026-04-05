@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+
 # SPDX-FileCopyrightText: 2026 Anil Belur <askb23@gmail.com>
 
 # Copilot Instructions — ZeroClaw Dashboard
@@ -25,6 +26,7 @@ All changes must go through analysis-first protocol → PR workflow.
 ## Styling
 
 Uses CSS custom properties for theming (not Tailwind config). Colors:
+
 - `--color-bg-primary`: #0a0a0f (darkest)
 - `--color-bg-secondary`: #111118
 - `--color-accent`: #5b5bff (Linear-like purple-blue)
